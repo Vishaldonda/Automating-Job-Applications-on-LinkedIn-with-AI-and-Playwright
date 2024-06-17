@@ -1,138 +1,18 @@
 const { chromium } = require('playwright');
-const fs = require('fs');
-const natural = require('natural');
 const readline = require('readline');
-const { TfIdf, WordTokenizer, PorterStemmer } = natural;
+const fs = require('fs');
+const {
+  answersDatabase,
+  saveAnswer,
+  handleNewQuestion,
+  calculateSimilarity,
+  getMostSimilarQuestion,
+  normalizeAndTokenize
+} = require('./utils');
 
-// Load or initialize answers database
-const answersFilePath = './answers.json';
-let answersDatabase = {};
+//------------------------------------------------1.Numeric response HANDLER-------------------------
 
-if (fs.existsSync(answersFilePath)) {
-  const data = fs.readFileSync(answersFilePath, 'utf8');
-  answersDatabase = JSON.parse(data);
-} else {
-  console.log('answers.json file not found. Please ensure it exists and is in the correct location.');
-  process.exit(1);
-}
-
-// Array of keywords representing technologies or topics
-const keywords = [
-  "javascript", "typescript", "node.js", "react.js", "angular", "vue.js", // JavaScript Frameworks/Libraries
-  "python", "django", "flask", // Python frameworks
-  "java", "spring", "spring boot", // Java frameworks
-  "aws", "azure", "google cloud", "cloud computing", // Cloud Platforms
-  "docker", "kubernetes", "containerization", // DevOps and Containers
-  "sql", "nosql", "mongodb", "postgresql", "mysql", "Databases",// Databases
-  "git", "github", "gitlab", // Version Control (Git)
-  "agile", "scrum", "kanban", // Agile Methodologies
-  "machine learning", "deep learning", "artificial intelligence", "data science", // AI/ML and Data Science
-  "html", "css", "sass", "bootstrap", "Web Development", // Web Technologies (HTML/CSS)
-  "restful api", "graphql", // APIs and Architectures
-  "microservices", "serverless", // Microservices and Serverless Architecture
-  "devops", "continuous integration", "continuous deployment", // DevOps Practices
-  "software engineering", "software development", "full stack", // Software Engineering and Full Stack
-  "cybersecurity", "network security", // Cybersecurity
-  "react native", "mobile development", // Mobile Development
-  "blockchain", "ethereum", "smart contracts", // Blockchain
-  "agile methodologies", "lean methodologies", // Agile and Lean Methodologies
-  "big data", "apache spark", "hadoop", // Big Data
-  "C++", "C", "Kotlin", // Programming languages
-  "software testing", "teamcenter", "dita xml" // Additional skills
-];
-
-// Helper function to normalize and tokenize text, ignoring common introductory phrases
-function normalizeAndTokenize(text) {
-  // Remove common introductory phrases
-  const regex = /^(how many years of work experience do you have with|how many years of do you have with|how many years of do you have)/i;
-  const processedText = text.replace(regex, '');
-  
-  const tokenizer = new WordTokenizer();
-  const tokens = tokenizer.tokenize(processedText.toLowerCase());
-  return tokens.map(token => PorterStemmer.stem(token)).join(' ');
-}
-
-// Function to calculate cosine similarity using TF-IDF, adjusted for specific keywords
-function calculateSimilarity(question1, question2) {
-  const tfidf = new TfIdf();
-  tfidf.addDocument(normalizeAndTokenize(question1));
-  tfidf.addDocument(normalizeAndTokenize(question2));
-  
-  let similarity = 0;
-  tfidf.listTerms(0).forEach(function(item) {
-    const term = item.term;
-    const tfidf1 = tfidf.tfidf(term, 0);
-    const tfidf2 = tfidf.tfidf(term, 1);
-    similarity += tfidf1 * tfidf2;
-  });
-  
-  return similarity;
-}
-
-// Function to find the closest question based on TF-IDF similarity, prioritizing DB contains keywords
-function getMostSimilarQuestion(question) {
-  const questions = Object.keys(answersDatabase);
-  if (questions.length === 0) return null;
-
-  // Check for exact match first
-  if (answersDatabase.hasOwnProperty(question)) {
-    return { mostSimilarQuestion: question, maxSimilarity: 1.0 };
-  }
-  
-  let mostSimilarQuestion = null;
-  let maxSimilarity = -1;
-
-  // Prioritize questions in DB that contain keywords
-  for (const q of questions) {
-    const dbContainsKeyword = keywords.some(keyword => q.toLowerCase().includes(keyword));
-    
-    if (dbContainsKeyword) {
-      let similarity = calculateSimilarity(question, q);
-      
-      // Check if either the input question or database question contains keywords
-      const inputContainsKeyword = keywords.some(keyword => question.toLowerCase().includes(keyword));
-
-      // Adjust similarity based on presence of keywords
-      if (inputContainsKeyword) {
-        similarity *= 1.2; // Input question contains keywords
-      }
-
-      // Debugging: Log similarity and keywords for analysis
-      console.log(`Question: "${q}", Similarity: ${similarity.toFixed(2)}, Input Contains Keywords: ${inputContainsKeyword}, DB Contains Keywords: true`);
-
-      if (similarity > maxSimilarity) {
-        maxSimilarity = similarity;
-        mostSimilarQuestion = q;
-      }
-    }
-  }
-
-  // If no sufficiently similar question found among DB questions, compare with all questions
-  if (!mostSimilarQuestion) {
-    for (const q of questions) {
-      if (!keywords.some(keyword => q.toLowerCase().includes(keyword))) {
-        let similarity = calculateSimilarity(question, q);
-
-        // Debugging: Log similarity for non-keyword-containing questions
-        console.log(`Question: "${q}", Similarity: ${similarity.toFixed(2)}, Input Contains Keywords: false, DB Contains Keywords: false`);
-
-        if (similarity > maxSimilarity) {
-          maxSimilarity = similarity;
-          mostSimilarQuestion = q;
-        }
-      }
-    }
-  }
-
-  // If no sufficiently similar question found, prompt for new answer
-  if (maxSimilarity < 0.4) { // Adjust the threshold as needed based on your application
-    return null;
-  }
-
-  return { mostSimilarQuestion, maxSimilarity };
-}
-
-async function answerQuestions(page) {
+async function answerNumericQuestions(page) {
   const questionElements = await page.$$('label.artdeco-text-input--label'); // Ensure you select the right labels
   for (let questionElement of questionElements) {
     const questionText = await questionElement.textContent();
@@ -169,45 +49,199 @@ async function answerQuestions(page) {
   }
 }
 
-function saveAnswer(question, answer) {
-  answersDatabase[question] = answer;
-  fs.writeFileSync(answersFilePath, JSON.stringify(answersDatabase, null, 2), 'utf8');
+//-------------------------------------------------2.Binary response HANDLER-------------------------
+const binaryAnswersFilePath  = './binary_response.json';
+let binaryAnswersDatabase  = {};
+if (fs.existsSync(binaryAnswersFilePath)) {
+  const data = fs.readFileSync(binaryAnswersFilePath, 'utf8');
+  binaryAnswersDatabase = JSON.parse(data);
+} else {
+  console.log('binary_response.json file not found. Creating a new one.');
+  fs.writeFileSync(binaryAnswersFilePath, JSON.stringify(binaryAnswersDatabase, null, 2));
 }
 
-async function handleNewQuestion(question) {
-  console.log(`No sufficiently similar question found for: "${question}". Please provide an answer.`);
-  const answer = await new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
-    rl.question(`Answer for "${question}": `, (input) => {
-      rl.close();
-      resolve(input.trim());
-    });
-  });
+async function answerBinaryQuestions(page) {
+  const binaryQuestionSelectors = [
+    'fieldset[data-test-form-builder-radio-button-form-component="true"]',
+  ];
 
-  // Save the new answer to the database
-  saveAnswer(question, answer);
+  for (let selector of binaryQuestionSelectors) {
+    const questionElements = await page.$$(selector);
+    for (let questionElement of questionElements) {
+      const questionTextElement = await questionElement.$('span[data-test-form-builder-radio-button-form-component__title]');
+      const questionText = (await questionTextElement.textContent()).trim();
+      console.log("Binary Question:", questionText);
+
+      let answer = binaryAnswersDatabase[questionText];
+
+      if (!answer) {
+        answer = await handleNewQuestionBinary(questionText, page);
+        binaryAnswersDatabase[questionText] = answer;
+        fs.writeFileSync(binaryAnswersFilePath, JSON.stringify(binaryAnswersDatabase, null, 2));
+      }
+
+      const yesInput = await questionElement.$('input[value="Yes"]');
+      const noInput = await questionElement.$('input[value="No"]');
+
+      try {
+        if (answer === 'Yes' && yesInput) {
+          await yesInput.scrollIntoViewIfNeeded();
+          await yesInput.click({ force: true });
+        } else if (answer === 'No' && noInput) {
+          await noInput.scrollIntoViewIfNeeded();
+          await noInput.click({ force: true });
+        } else {
+          console.log(`No suitable answer found for: "${questionText}". Skipping.`);
+        }
+      } catch (error) {
+        console.error(`Failed to click on the answer for: "${questionText}". Error: ${error}`);
+      }
+    }
+  }
+}
+
+async function handleNewQuestionBinary(questionText, page) {
+  let answer = '';
+
+  while (answer !== 'Yes' && answer !== 'No') {
+    answer = await new Promise((resolve) => {
+      setTimeout(resolve, 1000);  // Wait for 1 second before checking again
+    });
+
+    const yesInput = await page.$('input[value="Yes"]:checked');
+    const noInput = await page.$('input[value="No"]:checked');
+
+    if (yesInput) {
+      return 'Yes';
+    } else if (noInput) {
+      return 'No';
+    } else {
+      console.log('No selection made via UI. Please provide "Yes" or "No" via terminal.');
+    }
+  }
+
+  return answer.charAt(0).toUpperCase() + answer.slice(1);
+}
+
+//-------------------------------------------------3.DropDown response HANDLER-------------------------
+const dropdownAnswersFilePath = './dropdown_response.json';
+let dropdownAnswersDatabase = {};
+if (fs.existsSync(dropdownAnswersFilePath)) {
+  const data = fs.readFileSync(dropdownAnswersFilePath, 'utf8');
+  dropdownAnswersDatabase = JSON.parse(data);
+} else {
+  console.log('dropdown_response.json file not found. Creating a new one.');
+  fs.writeFileSync(dropdownAnswersFilePath, JSON.stringify(dropdownAnswersDatabase, null, 2));
+}
+
+async function answerDropDown(page) {
+  const dropdownQuestionSelector = 'div[data-test-text-entity-list-form-component]';
+
+  const dropdownElements = await page.$$(dropdownQuestionSelector);
+  for (let dropdownElement of dropdownElements) {
+    const questionTextElement = await dropdownElement.$('label span:not(.visually-hidden)');
+    const questionText = (await questionTextElement.textContent()).trim();
+    console.log("Dropdown Question:", questionText);
+
+    const selectElement = await dropdownElement.$('select');
+    const options = await selectElement.$$('option');
+
+    let answer = dropdownAnswersDatabase[questionText];
+
+    if (!answer) {
+      console.log(`Please select the answer for "${questionText}" via the browser UI.`);
+      await selectElement.focus();
+
+      // Polling loop to wait for user selection
+      let selectedValue = await selectElement.inputValue();
+      while (selectedValue === "Select an option") {
+        await page.waitForTimeout(500);  // Wait for 500ms
+        selectedValue = await selectElement.inputValue();
+      }
+
+      answer = selectedValue;
+      dropdownAnswersDatabase[questionText] = answer;
+
+      fs.writeFileSync(dropdownAnswersFilePath, JSON.stringify(dropdownAnswersDatabase, null, 2));
+    } else {
+      await selectElement.selectOption({ label: answer });
+    }
+  }
+}
+
+
+async function handleNewAnswerDropDown(questionText, page) {
+  let answer = '';
+
+  while (!answer) {
+    answer = await new Promise((resolve) => {
+      setTimeout(resolve, 1000);  // Wait for 1 second before checking again
+    });
+
+    const dropdownElement = await page.$('select:checked');
+    if (dropdownElement) {
+      const selectedOption = await dropdownElement.$('option:checked');
+      answer = await selectedOption.textContent();
+      return answer;
+    } else {
+      console.log('No selection made via UI. Please provide the dropdown answer via terminal.');
+    }
+  }
+
   return answer;
 }
 
+async function answerQuestions(page){
+  await  answerNumericQuestions(page)
+  await  answerBinaryQuestions(page)
+  await answerDropDown(page)
+}
 
+async function handleNextOrReview(page) {
+  let nextButton = await page.$('button[aria-label="Continue to next step"]');
+  let reviewButton = await page.$('button[aria-label="Review your application"]');
 
+  while (nextButton) {
+    await nextButton.click();
+    await page.waitForNavigation({ waitUntil: 'load' });
+    await answerQuestions(page);
+    nextButton = await page.$('button[aria-label="Continue to next step"]');
+  }
 
+  if (reviewButton) {
+    await reviewButton.click();
+    console.log("Review button successfully clicked");
 
+    let submitButton = await page.$('button[aria-label="Submit application"]');
+    if (submitButton) {
+      await submitButton.click();
+      console.log("Submit button clicked");
 
+      await page.waitForTimeout(5000)
+      await page.waitForSelector('button[aria-label="Dismiss"]', { visible: true });
+      let modalButton = await page.$('button[aria-label="Dismiss"]');
+      let attempts = 0;
+      const maxAttempts = 10;
 
+      while (attempts < maxAttempts) {
+        try {
+          await modalButton.evaluate(b => b.click());
+          console.log("Modal button clicked");
+          break; // Exit loop if click is successful
+        } catch (error) {
+          console.log(`Attempt ${attempts + 1} failed: ${error.message}`);
+          attempts++;
+          await page.waitForTimeout(500); // Wait before retrying
+          modalButton = await page.$('button[aria-label="Dismiss"]'); // Re-select the button
+        }
+      }
 
-
-
-
-
-
-
-
-
-
+      if (attempts === maxAttempts) {
+        console.log("Failed to click the modal button after multiple attempts.");
+      }
+    }
+  }
+}
 
 //###########################-----------MAIN FUNCTION----------###############################
 (async () => {
@@ -236,6 +270,7 @@ async function handleNewQuestion(question) {
   //await page.fill('input[placeholder="Search by title, skill, or company"]', 'Software Engineer');
   //await page.click('button[data-control-name="job_search_button"]');
   
+  await page.waitForTimeout(3000)
   await page.getByRole('combobox', { name: 'Search by title, skill, or' }).click();
   await page.waitForTimeout(3000)
 
@@ -309,7 +344,7 @@ async function handleNewQuestion(question) {
     await page.getByLabel('Continue to next step').click();
 
     //----------------Template-2
-    await page.setInputFiles('input[type="file"]', 'Cashier Resume.pdf');
+    await page.setInputFiles('input[type="file"]', 'Donda Vishal Resume.pdf');
     
     await page.waitForTimeout(3000)
     await page.click('button:has-text("Next")');
@@ -318,7 +353,9 @@ async function handleNewQuestion(question) {
     await page.waitForTimeout(5000)
 
     await answerQuestions(page);
-    await page.click('button:has-text("Submit application")');
+    await handleNextOrReview(page);
+    
+    //await page.click('button:has-text("Submit application")');
 
   }
 
