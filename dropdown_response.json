@@ -1,1 +1,22 @@
-{}
+{
+  "What is your level of proficiency in English?": "Professional",
+  "Will you be able to join within 20 days?": "Yes",
+  "Notice Period less than 30 days": "Yes",
+  "Must have at least 5 years experience in writing SQL queries.": "No",
+  "Must have at least 5 years experience in Azure Data Engineering.": "No",
+  "Do you have Databricks certifications?": "Yes",
+  "Are you comfortable in commuting to the work location?": "Yes",
+  "Are you currently living in Hyderabad?": "Yes",
+  "Do you have less than 30 days notice period?": "Yes",
+  "Are you interested to work form office ?": "Yes",
+  "Are you comfortable to commute to Gurgaon location ?": "Yes",
+  "Expected CTC?": "Yes",
+  "ADF (Azure Data Factory) experience": "Yes",
+  "ADB experience": "Yes",
+  "Willing to work from Office in Gurgaon location": "Yes",
+  "Email address": "wattsoneric1@gmail.com",
+  "Phone country code": "India (+91)",
+  "Are you located in Bangalore?": "Yes",
+  "Are you ready to relocate to Ahmedabad?": "Yes",
+  "Are you an immediate joiner?": "Yes"
+}
