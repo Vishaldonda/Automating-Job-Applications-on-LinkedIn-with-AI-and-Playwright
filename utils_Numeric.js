@@ -4,7 +4,7 @@ const { TfIdf, WordTokenizer, PorterStemmer } = natural;
 const readline = require('readline');
 
 // Load or initialize answers database
-const answersFilePath = './answers.json';
+const answersFilePath = './numeric_response.json';
 let answersDatabase = {};
 
 if (fs.existsSync(answersFilePath)) {
